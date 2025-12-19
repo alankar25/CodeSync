@@ -165,6 +165,3 @@ If port 5000 or 3000 is already in use:
 - **Backend**: Node.js, Express, Socket.io
 - **Code Execution**: Node.js (JavaScript), g++ (C++)
 
-## License
-
-[Add your license information here]
