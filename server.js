@@ -3,6 +3,22 @@ const app = express();
 const http = require('http');
 const { Server } = require('socket.io');
 const ACTIONS = require('./src/Actions');
+const { exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const cors = require("cors");
+// CORS middleware for HTTP requests
+
+
+app.use(cors({
+    origin: "*"
+  }));
+
+app.options("*", cors());
+
+app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -28,9 +44,156 @@ app.get('/', (req, res) => {
         message: 'CodeSync Backend API',
         endpoints: {
             health: '/health',
+            execute: '/api/execute',
             websocket: 'WebSocket connection available'
         }
     });
+});
+
+// Code execution endpoint
+app.post('/api/execute', async (req, res) => {
+    const { code, language } = req.body;
+    
+    if (!code || !language) {
+        return res.status(400).json({ error: 'Code and language are required' });
+    }
+
+    if (language === 'cpp') {
+        try {
+            // Create temporary directory for compilation
+            const tempDir = path.join(__dirname, 'temp');
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir);
+            }
+
+            const timestamp = Date.now();
+            const fileName = `code_${timestamp}`;
+            const cppFile = path.join(tempDir, `${fileName}.cpp`);
+            const exeFile = path.join(tempDir, fileName);
+            
+            // Write code to file
+            fs.writeFileSync(cppFile, code);
+
+            try {
+                // Compile C++ code
+                const compileCommand = `g++ -o "${exeFile}" "${cppFile}" 2>&1`;
+                const { stderr: compileError } = await execAsync(compileCommand, {
+                    timeout: 10000,
+                    maxBuffer: 1024 * 1024
+                });
+
+                if (compileError) {
+                    // Cleanup
+                    if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+                    return res.json({ 
+                        output: '', 
+                        error: compileError,
+                        success: false 
+                    });
+                }
+
+                // Execute the compiled program
+                const executeCommand = process.platform === 'win32' 
+                    ? `"${exeFile}.exe"` 
+                    : `"${exeFile}"`;
+                
+                const { stdout: execOutput, stderr: execError } = await execAsync(executeCommand, {
+                    timeout: 5000,
+                    maxBuffer: 1024 * 1024
+                });
+
+                // Cleanup
+                if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+                const exePath = process.platform === 'win32' ? `${exeFile}.exe` : exeFile;
+                if (fs.existsSync(exePath)) fs.unlinkSync(exePath);
+
+                res.json({ 
+                    output: execOutput || execError || '', 
+                    error: '', 
+                    success: true 
+                });
+            } catch (error) {
+                // Cleanup on error
+                if (fs.existsSync(cppFile)) fs.unlinkSync(cppFile);
+                const exePath = process.platform === 'win32' ? `${exeFile}.exe` : exeFile;
+                if (fs.existsSync(exePath)) fs.unlinkSync(exePath);
+
+                if (error.code === 'ETIMEDOUT') {
+                    return res.json({ 
+                        output: '', 
+                        error: 'Execution timeout: Code execution took too long (>5 seconds)',
+                        success: false 
+                    });
+                }
+
+                res.json({ 
+                    output: '', 
+                    error: error.stderr || error.message || 'Execution failed',
+                    success: false 
+                });
+            }
+        } catch (error) {
+            res.status(500).json({ 
+                error: `Server error: ${error.message}`,
+                success: false 
+            });
+        }
+    } else if (language === 'javascript') {
+        try {
+            // Create temporary directory for execution
+            const tempDir = path.join(__dirname, 'temp');
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir);
+            }
+
+            const timestamp = Date.now();
+            const jsFile = path.join(tempDir, `code_${timestamp}.js`);
+            
+            // Write code to file
+            fs.writeFileSync(jsFile, code);
+
+            try {
+                // Execute JavaScript code using Node.js
+                const { stdout, stderr } = await execAsync(`node "${jsFile}"`, {
+                    timeout: 5000,
+                    maxBuffer: 1024 * 1024
+                });
+
+                // Cleanup
+                if (fs.existsSync(jsFile)) fs.unlinkSync(jsFile);
+
+                res.json({ 
+                    output: stdout || '', 
+                    error: stderr || '', 
+                    success: true 
+                });
+            } catch (error) {
+                // Cleanup on error
+                if (fs.existsSync(jsFile)) fs.unlinkSync(jsFile);
+
+                if (error.code === 'ETIMEDOUT') {
+                    return res.json({ 
+                        output: '', 
+                        error: 'Execution timeout: Code execution took too long (>5 seconds)',
+                        success: false 
+                    });
+                }
+
+                res.json({ 
+                    output: '', 
+                    error: error.stderr || error.message || 'Execution failed',
+                    success: false 
+                });
+            }
+        } catch (error) {
+            res.status(500).json({ 
+                error: `Server error: ${error.message}`,
+                success: false 
+            });
+        }
+    } else {
+        res.status(400).json({ error: `Unsupported language: ${language}` });
+    }
 });
 
 const userSocketMap = {};
@@ -109,6 +272,22 @@ io.on('connection', (socket) => {
             io.to(socketId).emit(ACTIONS.CODE_CHANGE, { code });
         } catch (error) {
             console.error('Error in SYNC_CODE event:', error);
+        }
+    });
+
+    socket.on(ACTIONS.LANGUAGE_CHANGE, ({ roomId, language }) => {
+        try {
+            socket.in(roomId).emit(ACTIONS.LANGUAGE_CHANGE, { language });
+        } catch (error) {
+            console.error('Error in LANGUAGE_CHANGE event:', error);
+        }
+    });
+
+    socket.on(ACTIONS.SYNC_LANGUAGE, ({ socketId, language }) => {
+        try {
+            io.to(socketId).emit(ACTIONS.LANGUAGE_CHANGE, { language });
+        } catch (error) {
+            console.error('Error in SYNC_LANGUAGE event:', error);
         }
     });
 

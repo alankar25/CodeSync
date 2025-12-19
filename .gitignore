@@ -5,6 +5,10 @@
 /.pnp
 .pnp.js
 
+# temporary execution files
+/temp
+/server/temp
+
 # testing
 /coverage
 
@@ -26,3 +30,7 @@ yarn-error.log*
 package-backend.json
 render.yaml
 BACKEND_DEPLOYMENT.md
+FRONTEND_DEPLOYMENT.md
+
+# Local Netlify folder
+.netlify

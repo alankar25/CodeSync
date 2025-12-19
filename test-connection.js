@@ -4,7 +4,7 @@ const io = require('socket.io-client');
 function testConnection() {
     console.log('Testing socket connection...');
     
-    const socket = io('http://localhost:5000', {
+    const socket = io("https://codesync-backend-i4w6.onrender.com", {
         reconnectionAttempts: 5,
         reconnectionDelay: 1000,
         timeout: 20000,

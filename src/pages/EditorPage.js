@@ -20,6 +20,9 @@ const EditorPage = () => {
     const [clients, setClients] = useState([]);
     const [isConnected, setIsConnected] = useState(false);
     const [isReconnecting, setIsReconnecting] = useState(false);
+    const [language, setLanguage] = useState('javascript');
+    const [output, setOutput] = useState('');
+    const [isRunning, setIsRunning] = useState(false);
 
     const handleSocketEvents = () => {
         if (!socketRef.current) return;
@@ -91,6 +94,14 @@ const EditorPage = () => {
                 code: codeRef.current,
                 socketId,
             });
+            socketRef.current.emit(ACTIONS.SYNC_LANGUAGE, {
+                language: language,
+                socketId,
+            });
+        });
+
+        socketRef.current.on(ACTIONS.LANGUAGE_CHANGE, ({ language }) => {
+            setLanguage(language);
         });
 
         socketRef.current.on(ACTIONS.DISCONNECTED, ({ socketId, username }) => {
@@ -131,6 +142,7 @@ const EditorPage = () => {
                 socketRef.current.off('connect_failed');
                 socketRef.current.off(ACTIONS.JOINED);
                 socketRef.current.off(ACTIONS.DISCONNECTED);
+                socketRef.current.off(ACTIONS.LANGUAGE_CHANGE);
                 socketRef.current.disconnect();
             }
         };
@@ -162,6 +174,53 @@ const EditorPage = () => {
         } catch (error) {
             console.error('Manual reconnection failed:', error);
             toast.error('Failed to reconnect. Please refresh the page.');
+        }
+    };
+
+    const handleLanguageChange = (newLanguage) => {
+        setLanguage(newLanguage);
+        if (socketRef.current) {
+            socketRef.current.emit(ACTIONS.LANGUAGE_CHANGE, {
+                roomId,
+                language: newLanguage,
+            });
+        }
+    };
+
+    const handleRunCode = async () => {
+        if (!codeRef.current) {
+            toast.error('No code to run');
+            return;
+        }
+
+        setIsRunning(true);
+        setOutput('Running...\n');
+
+        try {
+            const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://codesync-backend-i4w6.onrender.com';
+            const response = await fetch(`${backendUrl}/api/execute`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    code: codeRef.current,
+                    language: language,
+                }),
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                setOutput(data.output || 'Execution completed with no output.');
+            } else {
+                setOutput(`Error:\n${data.error || 'Unknown error occurred'}`);
+            }
+        } catch (error) {
+            setOutput(`Error: Failed to execute code. ${error.message}`);
+            console.error('Execution error:', error);
+        } finally {
+            setIsRunning(false);
         }
     };
 
@@ -217,13 +276,41 @@ const EditorPage = () => {
                 </button>
             </div>
             <div className="editorWrap">
+                <div className="editorHeader">
+                    <div className="languageSelector">
+                        <label htmlFor="language-select">Language: </label>
+                        <select 
+                            id="language-select"
+                            value={language}
+                            onChange={(e) => handleLanguageChange(e.target.value)}
+                            className="languageSelect"
+                        >
+                            <option value="javascript">JavaScript</option>
+                            <option value="cpp">C++</option>
+                        </select>
+                    </div>
+                    <button 
+                        className="btn runBtn" 
+                        onClick={handleRunCode}
+                        disabled={isRunning}
+                    >
+                        {isRunning ? 'Running...' : '▶ Run Code'}
+                    </button>
+                </div>
                 <Editor
                     socketRef={socketRef}
                     roomId={roomId}
+                    language={language}
                     onCodeChange={(code) => {
                         codeRef.current = code;
                     }}
                 />
+                {output && (
+                    <div className="outputPanel">
+                        <div className="outputHeader">Output</div>
+                        <pre className="outputContent">{output}</pre>
+                    </div>
+                )}
             </div>
         </div>
     );

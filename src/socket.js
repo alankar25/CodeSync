@@ -14,6 +14,7 @@ export const initSocket = async () => {
         pingInterval: 25000,
     };
     
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://codesync-backend-i4w6.onrender.com';
+    console.log('Connecting to backend:', backendUrl);
     return io(backendUrl, options);
 };
