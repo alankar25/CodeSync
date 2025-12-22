@@ -26,7 +26,7 @@ Before running this project, make sure you have the following installed:
 
 1. **Clone the repository** (if you haven't already):
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/alankar25/CodeSync
    cd CodeSync-main
    ```
 
